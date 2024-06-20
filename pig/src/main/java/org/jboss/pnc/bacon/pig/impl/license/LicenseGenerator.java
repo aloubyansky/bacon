@@ -62,11 +62,22 @@ public class LicenseGenerator {
             String exceptionsPath,
             String namesPath) {
         File temporaryDestination = FileUtils.mkTempDir("licenses");
-        File topLevelDirectory = new File(temporaryDestination, topLevelDirectoryName);
+        try {
+            File topLevelDirectory = new File(temporaryDestination, topLevelDirectoryName);
 
-        generateLicenses(gavs, topLevelDirectory, PigContext.get().isTempBuild(), strict, exceptionsPath, namesPath);
-        FileUtils.zip(archiveFile, temporaryDestination, topLevelDirectory);
-        log.debug("Generated zip archive {}", archiveFile);
+            generateLicenses(
+                    gavs,
+                    topLevelDirectory,
+                    PigContext.get().isTempBuild(),
+                    strict,
+                    exceptionsPath,
+                    namesPath);
+            FileUtils.zip(archiveFile, temporaryDestination, topLevelDirectory);
+            log.debug("Generated zip archive {}", archiveFile);
+        } finally {
+            // delete the temporary dir
+            FileUtils.deleteRecursively(temporaryDestination);
+        }
     }
 
     public static void generateLicenses(
@@ -123,6 +134,8 @@ public class LicenseGenerator {
             }
         } catch (IOException ex) {
             throw new RuntimeException("Failed to extract licenses from zip", ex);
+        } finally {
+            FileUtils.deleteRecursively(temporaryDestination);
         }
 
     }

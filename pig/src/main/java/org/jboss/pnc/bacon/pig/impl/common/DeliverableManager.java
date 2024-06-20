@@ -72,6 +72,9 @@ public abstract class DeliverableManager<MetadataType extends GenerationData<?>,
         this.deliverables = deliverables;
         this.builds = builds;
         workDir = FileUtils.mkTempDir("deliverable-generation");
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            FileUtils.deleteRecursively(workDir);
+        }));
     }
 
     protected ResultType downloadAndRepackage() {

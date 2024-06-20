@@ -18,6 +18,7 @@
 
 package org.jboss.pnc.bacon.pig.impl.utils;
 
+import io.quarkus.bootstrap.util.IoUtils;
 import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.ArchiveException;
 import org.apache.commons.compress.archivers.ArchiveInputStream;
@@ -77,6 +78,10 @@ public final class FileUtils {
         } catch (IOException e) {
             throw new RuntimeException("Unable to create temporary directory", e);
         }
+    }
+
+    public static void deleteRecursively(File dir) {
+        IoUtils.recursiveDelete(dir.toPath());
     }
 
     public static String getCompressorType(final File file) {

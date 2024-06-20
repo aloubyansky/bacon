@@ -3,6 +3,7 @@ package org.jboss.pnc.bacon.pig.impl.sources;
 import com.google.common.collect.Maps;
 import com.redhat.red.build.koji.model.xmlrpc.KojiArchiveInfo;
 import com.redhat.red.build.koji.model.xmlrpc.KojiBuildInfo;
+import io.quarkus.bootstrap.util.IoUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.jboss.pnc.bacon.pig.impl.PigContext;
 import org.jboss.pnc.bacon.pig.impl.documents.sharedcontent.BrewSearcher;
@@ -78,7 +79,18 @@ public class SourcesGenerator {
         }
 
         File workDir = FileUtils.mkTempDir("sources");
+        try {
+            generateSourcesInternal(repo, workDir, additionalBuildsForSources);
+        } finally {
+            // delete the temp dir
+            IoUtils.recursiveDelete(workDir.toPath());
+        }
+    }
 
+    private void generateSourcesInternal(
+            RepositoryData repo,
+            File workDir,
+            Map<String, PncBuild> additionalBuildsForSources) {
         File contentsDir = new File(workDir, topLevelDirectoryName);
 
         contentsDir.mkdirs();
