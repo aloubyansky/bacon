@@ -693,6 +693,10 @@ public class RepoManager extends DeliverableManager<RepoGenerationData, Reposito
 
         zip(targetTopLevelDirectory, targetZipPath);
 
+        /*
+         * Cachi2LockfileGenerator.newInstance() .setOutputDirectory(Path.of(releasePath))
+         * .setArtifacts(artifactCollector.getRedHatArtifacts()) .generate();
+         */
         return result(targetTopLevelDirectory, targetZipPath);
     }
 

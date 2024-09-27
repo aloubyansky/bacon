@@ -1,10 +1,12 @@
 package org.jboss.pnc.bacon.pig.impl.repo;
 
+import io.quarkus.domino.RhVersionPattern;
 import io.quarkus.maven.dependency.ArtifactCoords;
 import io.quarkus.maven.dependency.GAV;
 import org.eclipse.aether.AbstractRepositoryListener;
 import org.eclipse.aether.RepositoryEvent;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,5 +37,24 @@ public class ResolvedArtifactCollector extends AbstractRepositoryListener {
 
     public Collection<ResolvedGav> getResolvedArtifacts() {
         return resolvedArtifacts.values();
+    }
+
+    public Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> getRedHatArtifacts() {
+        Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> result = new ArrayList<>();
+        for (var resolvedGav : getResolvedArtifacts()) {
+            if (!RhVersionPattern.isRhVersion(resolvedGav.getGav().getVersion())) {
+                continue;
+            }
+            for (var c : resolvedGav.getArtifacts()) {
+                result.add(
+                        new org.jboss.pnc.bacon.pig.impl.utils.GAV(
+                                c.getGroupId(),
+                                c.getArtifactId(),
+                                c.getVersion(),
+                                c.getExtension(),
+                                c.getClassifier()));
+            }
+        }
+        return result;
     }
 }
