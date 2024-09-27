@@ -110,12 +110,16 @@ public class RepoDescriptor {
     }
 
     private static boolean isInRepoDir(Path file) {
-        Path fileName = file == null ? null : file.getFileName();
-        if (fileName == null) {
+        if (file == null) {
             return false;
         }
-        return fileName.toString().equals(MAVEN_REPOSITORY.substring(0, MAVEN_REPOSITORY.length() - 1))
-                || isInRepoDir(file.getParent());
+        for (int i = 0; i < file.getNameCount(); ++i) {
+            var name = file.getName(i);
+            if (name.toString().regionMatches(0, MAVEN_REPOSITORY, 0, MAVEN_REPOSITORY.length() - 1)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Collection<File> listFiles(File m2RepoDirectory) {

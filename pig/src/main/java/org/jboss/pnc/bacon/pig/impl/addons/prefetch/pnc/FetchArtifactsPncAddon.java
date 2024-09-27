@@ -1,10 +1,5 @@
-package org.jboss.pnc.bacon.pig.impl.addons.fetchartifacts;
+package org.jboss.pnc.bacon.pig.impl.addons.prefetch.pnc;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import io.quarkus.fs.util.ZipUtils;
 import org.jboss.pnc.bacon.pig.impl.PigContext;
 import org.jboss.pnc.bacon.pig.impl.addons.AddOn;
@@ -33,20 +28,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Phaser;
 
-public class FetchArtifactsPncGenerator extends AddOn {
+import static org.jboss.pnc.bacon.pig.impl.addons.prefetch.YamlUtil.initYamlMapper;
 
-    private static final Logger log = LoggerFactory.getLogger(FetchArtifactsPncGenerator.class);
+public class FetchArtifactsPncAddon extends AddOn {
+
+    private static final Logger log = LoggerFactory.getLogger(FetchArtifactsPncAddon.class);
 
     private static final String MAVEN_RESPOSITORY_DIR = "maven-repository/";
 
-    private static ObjectMapper initYamlMapper() {
-        return new ObjectMapper(new YAMLFactory()).enable(SerializationFeature.INDENT_OUTPUT)
-                .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
-                .setPropertyNamingStrategy(PropertyNamingStrategies.KEBAB_CASE)
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    }
-
-    public FetchArtifactsPncGenerator(
+    public FetchArtifactsPncAddon(
             PigConfiguration pigConfiguration,
             Map<String, PncBuild> builds,
             String releasePath,
@@ -90,17 +80,17 @@ public class FetchArtifactsPncGenerator extends AddOn {
 
             phaser.arriveAndAwaitAdvance();
             assertNoErrors(errors);
-            log.info("DONE in " + (System.currentTimeMillis() - start));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
 
-        log.info("SAVING " + extrasPath);
-        try (BufferedWriter writer = Files.newBufferedWriter(Path.of(extrasPath).resolve("fetch-artifacts-pnc.yaml"))) {
+        final Path targetFile = Path.of(extrasPath).resolve("fetch-artifacts-pnc.yaml");
+        try (BufferedWriter writer = Files.newBufferedWriter(targetFile)) {
             initYamlMapper().writeValue(writer, builder.build());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        log.info("Generated " + targetFile + " in " + (System.currentTimeMillis() - start) + "ms");
     }
 
     private void assertNoErrors(Collection<Exception> errors) {
@@ -148,11 +138,15 @@ public class FetchArtifactsPncGenerator extends AddOn {
         }
 
         final RemoteCollection<Artifact> result = artifactClient
-                .getAll(null, null, null, Optional.empty(), Optional.ofNullable(query.toString()));
+                .getAll(null, null, null, Optional.empty(), Optional.of(query.toString()));
         if (result.size() == 0) {
-            log.error("FAILED to obtain info for " + gav.toGapvc() + " with query " + query);
+            throw new RuntimeException(
+                    "Failed to obtain build information for " + gav.toGapvc() + " with query " + query);
         }
         for (var a : result.getAll()) {
+            if (a.getBuild() == null) {
+                throw new RuntimeException("No build info for " + gav.toGapvc());
+            }
             builder.add(a.getBuild().getId(), a.getId(), MAVEN_RESPOSITORY_DIR + a.getDeployPath());
         }
     }

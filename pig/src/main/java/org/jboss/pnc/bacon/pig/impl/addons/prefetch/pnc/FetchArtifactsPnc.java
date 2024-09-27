@@ -1,4 +1,4 @@
-package org.jboss.pnc.bacon.pig.impl.addons.fetchartifacts;
+package org.jboss.pnc.bacon.pig.impl.addons.prefetch.pnc;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
