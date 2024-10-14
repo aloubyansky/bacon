@@ -5,7 +5,13 @@ import io.quarkus.maven.dependency.ArtifactCoords;
 import io.quarkus.maven.dependency.GAV;
 import org.eclipse.aether.AbstractRepositoryListener;
 import org.eclipse.aether.RepositoryEvent;
+import org.jboss.pnc.bacon.pig.impl.repo.visitor.ArtifactVisit;
+import org.jboss.pnc.bacon.pig.impl.repo.visitor.ArtifactVisitor;
+import org.jboss.pnc.bacon.pig.impl.repo.visitor.FileSystemArtifactVisit;
+import org.jboss.pnc.bacon.pig.impl.repo.visitor.VisitableArtifactRepository;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
@@ -39,7 +45,11 @@ public class ResolvedArtifactCollector extends AbstractRepositoryListener {
         return resolvedArtifacts.values();
     }
 
-    public Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> getRedHatArtifacts() {
+    public VisitableArtifactRepository toVisitableRepository() {
+        return new VisitableRepository(getRedHatArtifacts());
+    }
+
+    private Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> getRedHatArtifacts() {
         Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> result = new ArrayList<>();
         for (var resolvedGav : getResolvedArtifacts()) {
             if (!RhVersionPattern.isRhVersion(resolvedGav.getGav().getVersion())) {
@@ -56,5 +66,57 @@ public class ResolvedArtifactCollector extends AbstractRepositoryListener {
             }
         }
         return result;
+    }
+
+    private class VisitableRepository implements VisitableArtifactRepository {
+        private final Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> artifacts;
+
+        public VisitableRepository(Collection<org.jboss.pnc.bacon.pig.impl.utils.GAV> artifacts) {
+            this.artifacts = artifacts;
+        }
+
+        @Override
+        public void visit(ArtifactVisitor visitor) {
+            for (var gav : artifacts) {
+                visitor.visit(new ResolvedArtifactVisit(gav));
+            }
+        }
+
+        private Path getArtifactPath(org.jboss.pnc.bacon.pig.impl.utils.GAV artifact) {
+            var resolvedGav = resolvedArtifacts
+                    .get(new GAV(artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion()));
+            if (resolvedGav == null) {
+                throw new IllegalArgumentException(
+                        "Failed to locate " + artifact.toGapvc() + " among the resolved artifacts");
+            }
+            var path = resolvedGav.getArtifactDirectory().resolve(artifact.toFileName());
+            if (!Files.exists(path)) {
+                throw new IllegalArgumentException("Failed to locate " + path);
+            }
+            return path;
+        }
+
+        @Override
+        public int getArtifactsTotal() {
+            return artifacts.size();
+        }
+
+        private class ResolvedArtifactVisit implements ArtifactVisit {
+            private final org.jboss.pnc.bacon.pig.impl.utils.GAV gav;
+
+            public ResolvedArtifactVisit(org.jboss.pnc.bacon.pig.impl.utils.GAV gav) {
+                this.gav = gav;
+            }
+
+            @Override
+            public org.jboss.pnc.bacon.pig.impl.utils.GAV getGav() {
+                return gav;
+            }
+
+            @Override
+            public Map<String, String> getChecksums() {
+                return FileSystemArtifactVisit.readArtifactChecksums(getArtifactPath(gav));
+            }
+        }
     }
 }

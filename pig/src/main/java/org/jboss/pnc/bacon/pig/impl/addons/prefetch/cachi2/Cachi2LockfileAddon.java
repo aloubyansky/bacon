@@ -35,7 +35,7 @@ public class Cachi2LockfileAddon extends AddOn {
 
     @Override
     public String getName() {
-        return "cachi2Lockfile";
+        return "cachi2LockFile";
     }
 
     @Override

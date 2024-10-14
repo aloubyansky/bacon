@@ -143,31 +143,33 @@ public class Cachi2LockfileGenerator {
     }
 
     public void generate() {
+        log.info("Generating Cachi2 lockfile");
+        var start = System.currentTimeMillis();
+        final Path lockfileYaml;
         if (repository != null) {
-            generateLockfile(repository);
+            lockfileYaml = generateLockfile(repository);
         } else {
             if (repositoryLocation == null) {
                 throw new IllegalArgumentException(
                         "Neither visitable Maven repository nor Maven repository location was configured");
             }
             if (Files.isDirectory(repositoryLocation)) {
-                generateLockfile(VisitableArtifactRepository.of(repositoryLocation));
+                lockfileYaml = generateLockfile(VisitableArtifactRepository.of(repositoryLocation));
             } else {
                 try (FileSystem fs = ZipUtils.newFileSystem(repositoryLocation)) {
-                    generateLockfile(VisitableArtifactRepository.of(fs.getPath("")));
+                    lockfileYaml = generateLockfile(VisitableArtifactRepository.of(fs.getPath("")));
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
             }
         }
+        logDone(lockfileYaml, System.currentTimeMillis() - start);
     }
 
-    private void generateLockfile(VisitableArtifactRepository mavenRepo) {
+    private Path generateLockfile(VisitableArtifactRepository mavenRepo) {
 
-        log.info("Generating Cachi2 lockfile");
         Cachi2Lockfile lockfile = new Cachi2Lockfile();
 
-        var start = System.currentTimeMillis();
         final Phaser phaser = new Phaser(1);
         final Collection<Exception> errors = new ConcurrentLinkedDeque<>();
         final Collection<Cachi2Lockfile.Cachi2Artifact> cachi2Artifacts = new ConcurrentLinkedDeque<>();
@@ -197,13 +199,34 @@ public class Cachi2LockfileGenerator {
         Arrays.sort(arr, Comparator.comparing(Cachi2Lockfile.Cachi2Artifact::getPurl));
         lockfile.setContent(List.of(arr));
 
-        Path lockfileYaml = getOutputFile();
+        final Path lockfileYaml = getOutputFile();
         try (BufferedWriter writer = Files.newBufferedWriter(lockfileYaml)) {
             initYamlMapper().writeValue(writer, lockfile);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        log.info("Generated Cachi2 lockfile {} in {}ms", lockfileYaml, System.currentTimeMillis() - start);
+        return lockfileYaml;
+    }
+
+    private static void logDone(Path lockfileYaml, long totalMs) {
+        var secTotal = totalMs / 1000;
+        var minTotal = secTotal / 60;
+        var hoursTotal = minTotal / 60;
+        var sb = new StringBuilder().append("Generated Cachi2 lock file ").append(lockfileYaml).append(" in ");
+        boolean appendUnit = hoursTotal > 0;
+        if (appendUnit) {
+            sb.append(hoursTotal).append("h ");
+        }
+        appendUnit |= minTotal > 0;
+        if (appendUnit) {
+            sb.append(minTotal - hoursTotal * 60).append("min ");
+        }
+        appendUnit |= secTotal > 0;
+        if (appendUnit) {
+            sb.append(secTotal - minTotal * 60).append("sec ");
+        }
+        sb.append(totalMs - secTotal * 1000).append("ms");
+        log.info(sb.toString());
     }
 
     private void logProcessedArtifact(GAV artifact, AtomicInteger artifactCounter, int artifactsTotal) {
