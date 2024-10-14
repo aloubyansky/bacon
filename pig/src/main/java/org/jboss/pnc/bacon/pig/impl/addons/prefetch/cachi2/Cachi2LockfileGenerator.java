@@ -20,6 +20,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,7 +43,8 @@ public class Cachi2LockfileGenerator {
 
     private static final String MAVEN_RESPOSITORY_DIR = "maven-repository/";
     private static final String FORMAT_BASE = "[%s/%s %.1f%%] ";
-    private static final String logPrefix = "Cachi2 lockfile added ";
+    private static final String CACHI_2_LOCKFILE_ADDED = "Cachi2 lockfile added ";
+    private static final String CACHI_2_LOCKFILE_SKIPPED_DUPLICATE = "Cachi2 lockfile skipped duplicate ";
     public static final String DEFAULT_OUTPUT_FILENAME = "cachi2lockfile.yaml";
     public static final String DEFAULT_REPOSITORY_URL = "https://indy.corp.redhat.com/api/content/maven/hosted/pnc-builds/";
 
@@ -53,7 +56,7 @@ public class Cachi2LockfileGenerator {
     private String outputFileName;
     private Path outputFile;
     private VisitableArtifactRepository repository;
-    private Path repositoryLocation;
+    private List<Path> repositoryLocations = List.of();
     private String defaultRepositoryUrl = DEFAULT_REPOSITORY_URL;
 
     /**
@@ -98,7 +101,8 @@ public class Cachi2LockfileGenerator {
 
     /**
      * Maven repository that implements the visitor pattern for its artifacts. If a Maven repository is configured with
-     * this method, a value set with {@link #setMavenRepository(Path)} will be ignored.
+     * this method and {@link #addMavenRepository(Path)} the artifacts from all the Maven repositories will be collected
+     * in a single lock file.
      *
      * @param mavenRepository visitable Maven repository
      * @return this instance
@@ -110,14 +114,17 @@ public class Cachi2LockfileGenerator {
 
     /**
      * Path to a local Maven repository to generate a lock file for. The path can point to a directory or a ZIP file. In
-     * case {@link #setMavenRepository(VisitableArtifactRepository)} is also called, the value of the Maven repository
-     * path will be ignored.
+     * case {@link #setMavenRepository(VisitableArtifactRepository)} is also called, the artifacts from all repositories
+     * will be collected in a single lock file.
      *
      * @param mavenRepo path to a local Maven repository
      * @return this instance
      */
-    public Cachi2LockfileGenerator setMavenRepository(Path mavenRepo) {
-        this.repositoryLocation = mavenRepo;
+    public Cachi2LockfileGenerator addMavenRepository(Path mavenRepo) {
+        if (this.repositoryLocations.isEmpty()) {
+            this.repositoryLocations = new ArrayList<>(1);
+        }
+        this.repositoryLocations.add(mavenRepo);
         return this;
     }
 
@@ -145,58 +152,11 @@ public class Cachi2LockfileGenerator {
     public void generate() {
         log.info("Generating Cachi2 lockfile");
         var start = System.currentTimeMillis();
-        final Path lockfileYaml;
-        if (repository != null) {
-            lockfileYaml = generateLockfile(repository);
-        } else {
-            if (repositoryLocation == null) {
-                throw new IllegalArgumentException(
-                        "Neither visitable Maven repository nor Maven repository location was configured");
-            }
-            if (Files.isDirectory(repositoryLocation)) {
-                lockfileYaml = generateLockfile(VisitableArtifactRepository.of(repositoryLocation));
-            } else {
-                try (FileSystem fs = ZipUtils.newFileSystem(repositoryLocation)) {
-                    lockfileYaml = generateLockfile(VisitableArtifactRepository.of(fs.getPath("")));
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }
-        }
-        logDone(lockfileYaml, System.currentTimeMillis() - start);
-    }
 
-    private Path generateLockfile(VisitableArtifactRepository mavenRepo) {
-
-        Cachi2Lockfile lockfile = new Cachi2Lockfile();
-
-        final Phaser phaser = new Phaser(1);
-        final Collection<Exception> errors = new ConcurrentLinkedDeque<>();
-        final Collection<Cachi2Lockfile.Cachi2Artifact> cachi2Artifacts = new ConcurrentLinkedDeque<>();
-        try (ArtifactClient artifactClient = new ArtifactClient(PncClientHelper.getPncConfiguration(true))) {
-            final AtomicInteger artifactCounter = new AtomicInteger();
-            mavenRepo.visit(visit -> {
-                phaser.register();
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        Cachi2Lockfile.Cachi2Artifact ca = new Cachi2Lockfile.Cachi2Artifact();
-                        ca.setTarget(MAVEN_RESPOSITORY_DIR + visit.getGav().toUri());
-                        addArtifact(artifactClient, visit, ca);
-                        cachi2Artifacts.add(ca);
-                    } catch (Exception e) {
-                        errors.add(e);
-                    } finally {
-                        phaser.arriveAndDeregister();
-                    }
-                    logProcessedArtifact(visit.getGav(), artifactCounter, mavenRepo.getArtifactsTotal());
-                });
-            });
-            phaser.arriveAndAwaitAdvance();
-        }
-        assertNoErrors(errors);
-
-        var arr = cachi2Artifacts.toArray(new Cachi2Lockfile.Cachi2Artifact[0]);
+        var arr = collectArtifacts();
         Arrays.sort(arr, Comparator.comparing(Cachi2Lockfile.Cachi2Artifact::getPurl));
+
+        final Cachi2Lockfile lockfile = new Cachi2Lockfile();
         lockfile.setContent(List.of(arr));
 
         final Path lockfileYaml = getOutputFile();
@@ -205,7 +165,70 @@ public class Cachi2LockfileGenerator {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        return lockfileYaml;
+
+        logDone(lockfileYaml, System.currentTimeMillis() - start);
+    }
+
+    private Cachi2Lockfile.Cachi2Artifact[] collectArtifacts() {
+        final Map<String, Cachi2Lockfile.Cachi2Artifact> cachi2Artifacts = new ConcurrentHashMap<>();
+        if (repository != null) {
+            generateLockfile(repository, cachi2Artifacts);
+        } else if (repositoryLocations.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Neither visitable Maven repository nor Maven repository paths were configured");
+        }
+        for (var repositoryLocation : repositoryLocations) {
+            if (Files.isDirectory(repositoryLocation)) {
+                generateLockfile(VisitableArtifactRepository.of(repositoryLocation), cachi2Artifacts);
+            } else {
+                try (FileSystem fs = ZipUtils.newFileSystem(repositoryLocation)) {
+                    generateLockfile(VisitableArtifactRepository.of(fs.getPath("")), cachi2Artifacts);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+        }
+        return cachi2Artifacts.values().toArray(new Cachi2Lockfile.Cachi2Artifact[0]);
+    }
+
+    private void generateLockfile(
+            VisitableArtifactRepository mavenRepo,
+            Map<String, Cachi2Lockfile.Cachi2Artifact> cachi2Artifacts) {
+        final Phaser phaser = new Phaser(1);
+        final Collection<Exception> errors = new ConcurrentLinkedDeque<>();
+        try (ArtifactClient artifactClient = new ArtifactClient(PncClientHelper.getPncConfiguration(true))) {
+            final AtomicInteger artifactCounter = new AtomicInteger();
+            mavenRepo.visit(visit -> {
+                if (cachi2Artifacts.containsKey(visit.getGav().toGapvc())) {
+                    logProcessedArtifact(
+                            CACHI_2_LOCKFILE_SKIPPED_DUPLICATE,
+                            visit.getGav(),
+                            artifactCounter,
+                            mavenRepo.getArtifactsTotal());
+                } else {
+                    phaser.register();
+                    CompletableFuture.runAsync(() -> {
+                        final Cachi2Lockfile.Cachi2Artifact ca = new Cachi2Lockfile.Cachi2Artifact();
+                        try {
+                            ca.setTarget(MAVEN_RESPOSITORY_DIR + visit.getGav().toUri());
+                            addArtifact(artifactClient, visit, ca);
+                            cachi2Artifacts.put(visit.getGav().toGapvc(), ca);
+                        } catch (Exception e) {
+                            errors.add(e);
+                        } finally {
+                            phaser.arriveAndDeregister();
+                        }
+                        logProcessedArtifact(
+                                CACHI_2_LOCKFILE_ADDED,
+                                visit.getGav(),
+                                artifactCounter,
+                                mavenRepo.getArtifactsTotal());
+                    });
+                }
+            });
+            phaser.arriveAndAwaitAdvance();
+        }
+        assertNoErrors(errors);
     }
 
     private static void logDone(Path lockfileYaml, long totalMs) {
@@ -229,13 +252,13 @@ public class Cachi2LockfileGenerator {
         log.info(sb.toString());
     }
 
-    private void logProcessedArtifact(GAV artifact, AtomicInteger artifactCounter, int artifactsTotal) {
+    private void logProcessedArtifact(String prefix, GAV artifact, AtomicInteger artifactCounter, int artifactsTotal) {
         var sb = new StringBuilder(180);
         var formatter = new Formatter(sb);
         var artifactIndex = artifactCounter.incrementAndGet();
         final double percents = ((double) artifactIndex * 100) / artifactsTotal;
         formatter.format(FORMAT_BASE, artifactIndex, artifactsTotal, percents);
-        sb.append(logPrefix).append(artifact.toGapvc());
+        sb.append(prefix).append(artifact.toGapvc());
         log.info(sb.toString());
     }
 

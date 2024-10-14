@@ -6,6 +6,7 @@ import org.jboss.pnc.client.ArtifactClient;
 import picocli.CommandLine;
 
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 @CommandLine.Command(
@@ -15,16 +16,22 @@ public class Cachi2Lockfile implements Callable<Integer> {
 
     private static final ClientCreator<ArtifactClient> CREATOR = new ClientCreator<>(ArtifactClient::new);
 
-    @CommandLine.Parameters(description = "Path to a Maven repository ZIP or a directory")
-    private File mavenRepo;
+    @CommandLine.Parameters(description = "Comma-separated paths to Maven repositories (ZIPs or directories)")
+    private List<File> repositories = List.of();
 
     @Override
     public Integer call() throws Exception {
-        System.out.println("Cachi2 lockfile for " + mavenRepo);
-        if (mavenRepo == null || !mavenRepo.exists()) {
-            throw new IllegalArgumentException("Invalid Maven repository location " + mavenRepo);
+        if (repositories.isEmpty()) {
+            throw new IllegalArgumentException("Maven repository location was not provided");
         }
-        Cachi2LockfileGenerator.newInstance().setMavenRepository(mavenRepo.toPath()).generate();
+        var generator = Cachi2LockfileGenerator.newInstance();
+        for (var path : repositories) {
+            if (!path.exists()) {
+                throw new IllegalArgumentException(path + " does not exist");
+            }
+            generator.addMavenRepository(path.toPath());
+        }
+        generator.generate();
         return 0;
     }
 }

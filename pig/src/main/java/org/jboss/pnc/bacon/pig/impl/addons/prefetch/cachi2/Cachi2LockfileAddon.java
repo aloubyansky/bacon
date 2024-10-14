@@ -47,7 +47,7 @@ public class Cachi2LockfileAddon extends AddOn {
 
         Cachi2LockfileGenerator cachi2Lockfile = Cachi2LockfileGenerator.newInstance()
                 .setOutputDirectory(Path.of(extrasPath))
-                .setMavenRepository(repoPath);
+                .addMavenRepository(repoPath);
 
         setParams(cachi2Lockfile);
 
