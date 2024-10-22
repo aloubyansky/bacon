@@ -294,6 +294,20 @@ addons:
 #### Using Defaults
 To use default value for an optional parameter leave that parameter undefined in the addons section of your build-config.yaml file.
 
+### Cachi2 Lock File Generator
+
+This add-on generates a Cachi2 Lock File for the produced Maven repository ZIP (regardless which strategy was used to generate it). Cachi2 Lock Files can be used to prefetch Maven content to Konflux pipelines for container image and MRRC release processes. 
+
+The add-on can be configured in the following way:
+
+```
+addons:
+  cachi2LockFile:
+    filename: mrrc-cachi2-lockfile.yaml
+```
+
+The `filename` parameter is optional and defaults to `cachi2lockfile.yaml` if not configured. The file will be stored under the `extras` directory.
+
 {% endraw %}
 
 ## PiG Export Feature
