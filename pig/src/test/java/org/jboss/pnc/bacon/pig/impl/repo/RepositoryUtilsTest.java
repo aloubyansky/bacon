@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class RepositoryUtilsTest {
@@ -54,5 +55,32 @@ class RepositoryUtilsTest {
         path = "/tmp/repository/test-me-here/let-me-go/1.2.3-some/let-me-go-1.2.3-some-nice-docs.zip";
         identifier = RepositoryUtils.convertArtifactPathToIdentifier(path);
         assertEquals("test-me-here:let-me-go:zip:1.2.3-some:nice-docs", identifier);
+    }
+
+    @Test
+    void testIsCommunity() {
+
+        // this tests that "redhat-" string appearing somewhere besides the file name does not get reported as an
+        // artifact built by Red Hat
+        assertThat(
+                RepositoryUtils.isCommunity(
+                        new File(
+                                "rhaf-camel-4.8.0.redhat-00008-for-quarkus-3.15.0.CQ2-maven-repository/maven-repository/com/hierynomus/smbj/0.13.0/smbj-0.13.0.jar")))
+                                        .isTrue();
+        assertThat(
+                RepositoryUtils.isCommunity(
+                        new File(
+                                "rhaf-camel-4.8.0.redhat-00008-for-quarkus-3.15.0.CQ2-maven-repository/maven-repository/com/hierynomus/smbj/0.13.0/_remote.repositories")))
+                                        .isTrue();
+        assertThat(
+                RepositoryUtils.isCommunity(
+                        new File(
+                                "rhaf-camel-4.8.0.redhat-00008-for-quarkus-3.15.0.CQ2-maven-repository/maven-repository/com/hierynomus/smbj/0.13.0.redhat-00001/smbj-0.13.0.redhat-00001.jar")))
+                                        .isFalse();
+        assertThat(
+                RepositoryUtils.isCommunity(
+                        new File(
+                                "rhaf-camel-4.8.0.redhat-00008-for-quarkus-3.15.0.CQ2-maven-repository/maven-repository/com/hierynomus/smbj/0.13.0.redhat-00001/_remote.repositories")))
+                                        .isFalse();
     }
 }
